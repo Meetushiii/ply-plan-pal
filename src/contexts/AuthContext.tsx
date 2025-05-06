@@ -6,14 +6,15 @@ interface User {
   id: string;
   name: string;
   email: string;
-  role: 'admin' | 'employee';
+  role: 'admin' | 'employee' | 'customer';
+  company?: string; // For customers who represent a company
 }
 
 interface AuthContextType {
   user: User | null;
   isLoading: boolean;
-  login: (email: string, password: string) => Promise<void>;
-  register: (name: string, email: string, password: string) => Promise<void>;
+  login: (email: string, password: string, userType?: 'employee' | 'customer') => Promise<void>;
+  register: (name: string, email: string, password: string, userType: 'employee' | 'customer', company?: string) => Promise<void>;
   logout: () => void;
 }
 
@@ -45,8 +46,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsLoading(false);
   }, []);
 
-  // Mock login function (this would connect to a backend in a real app)
-  const login = async (email: string, password: string) => {
+  // Mock login function (this would connect to a SQL backend in a real app)
+  const login = async (email: string, password: string, userType: 'employee' | 'customer' = 'employee') => {
     setIsLoading(true);
     
     // Simulate API delay
@@ -58,16 +59,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw new Error('Invalid credentials');
       }
       
-      // Mock user
+      // Mock user based on type
+      let role: 'admin' | 'employee' | 'customer';
+      
+      if (userType === 'employee') {
+        role = email.includes('admin') ? 'admin' : 'employee';
+      } else {
+        role = 'customer';
+      }
+      
       const mockUser: User = {
-        id: '1',
+        id: Math.random().toString(36).substr(2, 9),
         name: email.split('@')[0],
         email,
-        role: email.includes('admin') ? 'admin' : 'employee',
+        role,
+        company: userType === 'customer' ? 'Demo Company Ltd.' : undefined
       };
       
       setUser(mockUser);
       localStorage.setItem('plywoodUser', JSON.stringify(mockUser));
+      
+      // In a real app, we would store a JWT token here
+      
+      console.log(`${userType} logged in:`, mockUser);
+      
       toast({
         title: "Login successful",
         description: `Welcome back, ${mockUser.name}!`,
@@ -85,7 +100,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   // Mock register function
-  const register = async (name: string, email: string, password: string) => {
+  const register = async (
+    name: string, 
+    email: string, 
+    password: string,
+    userType: 'employee' | 'customer',
+    company?: string
+  ) => {
     setIsLoading(true);
     
     // Simulate API delay
@@ -98,15 +119,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       
       // Mock user
+      const role = userType === 'employee' 
+        ? (email.includes('admin') ? 'admin' : 'employee')
+        : 'customer';
+        
       const mockUser: User = {
         id: Math.random().toString(36).substr(2, 9),
         name,
         email,
-        role: 'employee',
+        role,
+        company: userType === 'customer' ? company : undefined
       };
       
       setUser(mockUser);
       localStorage.setItem('plywoodUser', JSON.stringify(mockUser));
+      
+      console.log(`${userType} registered:`, mockUser);
+      
       toast({
         title: "Registration successful",
         description: `Welcome, ${name}!`,
