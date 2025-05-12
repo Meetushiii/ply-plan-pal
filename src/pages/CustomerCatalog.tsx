@@ -2,20 +2,45 @@
 import React, { useState } from 'react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search } from "lucide-react";
+import { Search, ShoppingCart } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { mockPlywoodData, PlywoodSheet } from '@/lib/data-models';
 import { Card, CardContent } from "@/components/ui/card";
 import { CustomerLayout } from '@/components/CustomerLayout';
+import { toast } from "@/components/ui/use-toast";
+import { Badge } from "@/components/ui/badge";
 
 const CustomerCatalog = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [catalog, setCatalog] = useState<PlywoodSheet[]>(mockPlywoodData);
+  const [cartItems, setCartItems] = useState<{id: string, quantity: number}[]>([]);
   
   const filteredCatalog = catalog.filter(item => 
     item.type.toLowerCase().includes(searchTerm.toLowerCase()) ||
     item.supplier.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  const handleAddToCart = (item: PlywoodSheet) => {
+    // Check if item is already in cart
+    const existingItem = cartItems.find(cartItem => cartItem.id === item.id);
+    
+    if (existingItem) {
+      // Update quantity if already in cart
+      setCartItems(cartItems.map(cartItem => 
+        cartItem.id === item.id 
+          ? { ...cartItem, quantity: cartItem.quantity + 1 } 
+          : cartItem
+      ));
+    } else {
+      // Add new item to cart
+      setCartItems([...cartItems, { id: item.id, quantity: 1 }]);
+    }
+    
+    toast({
+      title: "Added to cart",
+      description: `${item.type} added to your cart.`
+    });
+  };
 
   return (
     <CustomerLayout>
@@ -34,6 +59,21 @@ const CustomerCatalog = () => {
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-10 w-full sm:w-[250px]"
               />
+            </div>
+            <div className="relative">
+              <Button 
+                variant="outline" 
+                className="relative" 
+                onClick={() => toast({ title: "Cart", description: "Cart functionality coming soon." })}
+              >
+                <ShoppingCart className="h-5 w-5 mr-2" />
+                Cart
+                {cartItems.length > 0 && (
+                  <Badge className="absolute -top-2 -right-2 bg-wood" variant="secondary">
+                    {cartItems.reduce((sum, item) => sum + item.quantity, 0)}
+                  </Badge>
+                )}
+              </Button>
             </div>
           </div>
         </header>
@@ -70,6 +110,7 @@ const CustomerCatalog = () => {
                             size="sm" 
                             disabled={item.quantity === 0}
                             className="bg-wood hover:bg-wood-dark"
+                            onClick={() => handleAddToCart(item)}
                           >
                             Add to Cart
                           </Button>

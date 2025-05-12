@@ -41,7 +41,8 @@ const Register = () => {
   const onSubmit = async (values: RegisterFormValues) => {
     setIsLoading(true);
     try {
-      await register(values.name, values.email, values.password);
+      // Fix the error by passing 'employee' as the userType to the register function
+      await register(values.name, values.email, values.password, 'employee');
       navigate("/dashboard");
     } catch (error) {
       // Error is handled in the AuthContext
