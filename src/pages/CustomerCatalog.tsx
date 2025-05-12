@@ -1,19 +1,43 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, ShoppingCart } from "lucide-react";
+import { Search, ShoppingCart, Loader2 } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { mockPlywoodData, PlywoodSheet } from '@/lib/data-models';
+import { PlywoodSheet } from '@/lib/data-models';
 import { Card, CardContent } from "@/components/ui/card";
 import { CustomerLayout } from '@/components/CustomerLayout';
 import { toast } from "@/components/ui/use-toast";
 import { Badge } from "@/components/ui/badge";
+import { fetchPlywoodInventory } from '@/services/plywoodService';
 
 const CustomerCatalog = () => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [catalog, setCatalog] = useState<PlywoodSheet[]>(mockPlywoodData);
+  const [catalog, setCatalog] = useState<PlywoodSheet[]>([]);
   const [cartItems, setCartItems] = useState<{id: string, quantity: number}[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  
+  useEffect(() => {
+    const loadCatalog = async () => {
+      setIsLoading(true);
+      try {
+        // Load inventory data
+        const data = await fetchPlywoodInventory();
+        setCatalog(data);
+      } catch (error) {
+        console.error('Error loading catalog data:', error);
+        toast({
+          title: "Error",
+          description: "Failed to load catalog data. Please try again.",
+          variant: "destructive",
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    loadCatalog();
+  }, []);
   
   const filteredCatalog = catalog.filter(item => 
     item.type.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -78,57 +102,63 @@ const CustomerCatalog = () => {
           </div>
         </header>
         
-        <Card className="shadow-md border-wood/20">
-          <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader className="bg-slate-50">
-                  <TableRow>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Grade</TableHead>
-                    <TableHead>Dimensions (mm)</TableHead>
-                    <TableHead>Availability</TableHead>
-                    <TableHead className="text-right">Price</TableHead>
-                    <TableHead></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredCatalog.length > 0 ? (
-                    filteredCatalog.map((item) => (
-                      <TableRow key={item.id}>
-                        <TableCell className="font-medium">{item.type}</TableCell>
-                        <TableCell>{item.grade}</TableCell>
-                        <TableCell>{`${item.thickness} × ${item.width} × ${item.length}`}</TableCell>
-                        <TableCell>
-                          <span className={item.quantity < 10 ? "text-red-500 font-medium" : "text-green-500 font-medium"}>
-                            {item.quantity > 0 ? 'In Stock' : 'Out of Stock'}
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-right">${(item.purchasePrice * 1.25).toFixed(2)}</TableCell>
-                        <TableCell>
-                          <Button 
-                            size="sm" 
-                            disabled={item.quantity === 0}
-                            className="bg-wood hover:bg-wood-dark"
-                            onClick={() => handleAddToCart(item)}
-                          >
-                            Add to Cart
-                          </Button>
+        {isLoading ? (
+          <div className="flex justify-center items-center py-12">
+            <Loader2 className="h-8 w-8 animate-spin text-navy" />
+          </div>
+        ) : (
+          <Card className="shadow-md border-wood/20">
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader className="bg-slate-50">
+                    <TableRow>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Grade</TableHead>
+                      <TableHead>Dimensions (mm)</TableHead>
+                      <TableHead>Availability</TableHead>
+                      <TableHead className="text-right">Price</TableHead>
+                      <TableHead></TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredCatalog.length > 0 ? (
+                      filteredCatalog.map((item) => (
+                        <TableRow key={item.id}>
+                          <TableCell className="font-medium">{item.type}</TableCell>
+                          <TableCell>{item.grade}</TableCell>
+                          <TableCell>{`${item.thickness} × ${item.width} × ${item.length}`}</TableCell>
+                          <TableCell>
+                            <span className={item.quantity < 10 ? "text-red-500 font-medium" : "text-green-500 font-medium"}>
+                              {item.quantity > 0 ? 'In Stock' : 'Out of Stock'}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-right">${(item.purchasePrice * 1.25).toFixed(2)}</TableCell>
+                          <TableCell>
+                            <Button 
+                              size="sm" 
+                              disabled={item.quantity === 0}
+                              className="bg-wood hover:bg-wood-dark"
+                              onClick={() => handleAddToCart(item)}
+                            >
+                              Add to Cart
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    ) : (
+                      <TableRow>
+                        <TableCell colSpan={6} className="text-center py-8 text-slate-500">
+                          No plywood items found matching your search.
                         </TableCell>
                       </TableRow>
-                    ))
-                  ) : (
-                    <TableRow>
-                      <TableCell colSpan={6} className="text-center py-8 text-slate-500">
-                        No plywood items found matching your search.
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </div>
-          </CardContent>
-        </Card>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </CustomerLayout>
   );

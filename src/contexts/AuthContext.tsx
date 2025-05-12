@@ -1,6 +1,7 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { toast } from "@/components/ui/use-toast";
+import { supabase } from '@/lib/supabase';
 
 interface User {
   id: string;
@@ -33,59 +34,130 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Check if user is stored in localStorage
-    const storedUser = localStorage.getItem('plywoodUser');
-    if (storedUser) {
+    // Check if user is authenticated
+    const fetchUser = async () => {
+      setIsLoading(true);
+      
       try {
-        setUser(JSON.parse(storedUser));
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        if (session) {
+          // If we have a session, get user details from the profiles table
+          const { data: userData, error: userError } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', session.user.id)
+            .single();
+            
+          if (userError) throw userError;
+          
+          setUser({
+            id: session.user.id,
+            name: userData.name || session.user.email?.split('@')[0] || 'User',
+            email: session.user.email || '',
+            role: userData.role || 'customer',
+            company: userData.company
+          });
+        }
       } catch (error) {
-        console.error('Failed to parse stored user:', error);
-        localStorage.removeItem('plywoodUser');
+        console.error('Error fetching user:', error);
+      } finally {
+        setIsLoading(false);
       }
-    }
-    setIsLoading(false);
+    };
+    
+    fetchUser();
+    
+    // Set up subscription for auth changes
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        if (event === 'SIGNED_IN' && session) {
+          // User signed in, get their profile data
+          const { data: userData, error: userError } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', session.user.id)
+            .single();
+            
+          if (!userError && userData) {
+            setUser({
+              id: session.user.id,
+              name: userData.name || session.user.email?.split('@')[0] || 'User',
+              email: session.user.email || '',
+              role: userData.role || 'customer',
+              company: userData.company
+            });
+          }
+        } else if (event === 'SIGNED_OUT') {
+          setUser(null);
+        }
+      }
+    );
+    
+    return () => {
+      authListener?.subscription.unsubscribe();
+    };
   }, []);
 
-  // Mock login function (this would connect to a SQL backend in a real app)
   const login = async (email: string, password: string, userType: 'employee' | 'customer' = 'employee') => {
     setIsLoading(true);
     
-    // Simulate API delay
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
     try {
-      // For demo purposes, accept any email with valid format and "password" as password
+      // For demo purposes, accept any email with "password" as the password
       if (password !== 'password') {
         throw new Error('Invalid credentials');
       }
       
-      // Mock user based on type
-      let role: 'admin' | 'employee' | 'customer';
-      
-      if (userType === 'employee') {
-        role = email.includes('admin') ? 'admin' : 'employee';
-      } else {
-        role = 'customer';
-      }
-      
-      const mockUser: User = {
-        id: Math.random().toString(36).substr(2, 9),
-        name: email.split('@')[0],
+      const { data, error } = await supabase.auth.signInWithPassword({
         email,
-        role,
-        company: userType === 'customer' ? 'Demo Company Ltd.' : undefined
-      };
+        password
+      });
       
-      setUser(mockUser);
-      localStorage.setItem('plywoodUser', JSON.stringify(mockUser));
+      if (error) throw error;
       
-      // In a real app, we would store a JWT token here
+      // Check if user profile exists
+      const { data: profileData, error: profileError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', data.user.id)
+        .single();
       
-      console.log(`${userType} logged in:`, mockUser);
+      // If no profile or wrong role type, create/update it
+      if (profileError || (profileData && profileData.role !== userType)) {
+        const role = userType === 'employee' 
+          ? (email.includes('admin') ? 'admin' : 'employee')
+          : 'customer';
+          
+        // Create or update profile
+        await supabase.from('profiles').upsert({
+          id: data.user.id,
+          name: email.split('@')[0],
+          email: email,
+          role: role,
+          company: userType === 'customer' ? 'Demo Company Ltd.' : null,
+          updated_at: new Date().toISOString()
+        });
+        
+        setUser({
+          id: data.user.id,
+          name: email.split('@')[0],
+          email: email,
+          role: role,
+          company: userType === 'customer' ? 'Demo Company Ltd.' : undefined
+        });
+      } else if (profileData) {
+        setUser({
+          id: data.user.id,
+          name: profileData.name || email.split('@')[0],
+          email: email,
+          role: profileData.role,
+          company: profileData.company
+        });
+      }
       
       toast({
         title: "Login successful",
-        description: `Welcome back, ${mockUser.name}!`,
+        description: `Welcome back, ${email.split('@')[0]}!`,
       });
     } catch (error: any) {
       toast({
@@ -99,7 +171,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // Mock register function
   const register = async (
     name: string, 
     email: string, 
@@ -109,32 +180,41 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   ) => {
     setIsLoading(true);
     
-    // Simulate API delay
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
     try {
-      // Basic validation
-      if (!email.includes('@') || password.length < 6) {
-        throw new Error('Invalid email or password too short');
-      }
+      // Sign up the user
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password
+      });
       
-      // Mock user
+      if (error) throw error;
+      
+      if (!data.user) throw new Error('User registration failed');
+      
+      // Determine role
       const role = userType === 'employee' 
         ? (email.includes('admin') ? 'admin' : 'employee')
         : 'customer';
-        
-      const mockUser: User = {
-        id: Math.random().toString(36).substr(2, 9),
-        name,
-        email,
-        role,
+      
+      // Create a profile for the user
+      const { error: profileError } = await supabase.from('profiles').insert({
+        id: data.user.id,
+        name: name,
+        email: email,
+        role: role,
+        company: userType === 'customer' ? company : null,
+        updated_at: new Date().toISOString()
+      });
+      
+      if (profileError) throw profileError;
+      
+      setUser({
+        id: data.user.id,
+        name: name,
+        email: email,
+        role: role,
         company: userType === 'customer' ? company : undefined
-      };
-      
-      setUser(mockUser);
-      localStorage.setItem('plywoodUser', JSON.stringify(mockUser));
-      
-      console.log(`${userType} registered:`, mockUser);
+      });
       
       toast({
         title: "Registration successful",
@@ -152,9 +232,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const logout = () => {
+  const logout = async () => {
+    await supabase.auth.signOut();
     setUser(null);
-    localStorage.removeItem('plywoodUser');
     toast({
       title: "Logged out",
       description: "You have been successfully logged out",

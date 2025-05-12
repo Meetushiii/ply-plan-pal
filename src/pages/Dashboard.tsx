@@ -1,20 +1,47 @@
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { mockPlywoodData, mockTransactions } from '@/lib/data-models';
+import { PlywoodSheet, Transaction } from '@/lib/data-models';
 import { useAuth } from '@/contexts/AuthContext';
+import { fetchPlywoodInventory } from '@/services/plywoodService';
+import { fetchTransactions } from '@/services/transactionService';
+import { Loader2 } from 'lucide-react';
 
 const Dashboard = () => {
   const { user } = useAuth();
+  const [plywoodData, setPlywoodData] = useState<PlywoodSheet[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  
+  useEffect(() => {
+    const loadDashboardData = async () => {
+      setIsLoading(true);
+      try {
+        // Load inventory data
+        const inventory = await fetchPlywoodInventory();
+        setPlywoodData(inventory);
+        
+        // Load transaction data
+        const txs = await fetchTransactions();
+        setTransactions(txs);
+      } catch (error) {
+        console.error('Error loading dashboard data:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    loadDashboardData();
+  }, []);
   
   // Calculate dashboard metrics
-  const totalInventoryItems = mockPlywoodData.reduce((sum, item) => sum + item.quantity, 0);
-  const totalInventoryTypes = new Set(mockPlywoodData.map(item => item.type)).size;
-  const lowStockItems = mockPlywoodData.filter(item => item.quantity < 10).length;
+  const totalInventoryItems = plywoodData.reduce((sum, item) => sum + item.quantity, 0);
+  const totalInventoryTypes = new Set(plywoodData.map(item => item.type)).size;
+  const lowStockItems = plywoodData.filter(item => item.quantity < 10).length;
   
   // Prepare chart data
-  const inventoryByType = mockPlywoodData.reduce((acc, item) => {
+  const inventoryByType = plywoodData.reduce((acc, item) => {
     const existingType = acc.find(t => t.name === item.type);
     if (existingType) {
       existingType.quantity += item.quantity;
@@ -25,9 +52,17 @@ const Dashboard = () => {
   }, [] as { name: string; quantity: number }[]);
   
   // Get recent transactions
-  const recentTransactions = [...mockTransactions]
+  const recentTransactions = transactions
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
     .slice(0, 5);
+
+  if (isLoading) {
+    return (
+      <div className="p-6 flex justify-center items-center min-h-[70vh]">
+        <Loader2 className="h-8 w-8 animate-spin text-navy" />
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
@@ -77,18 +112,24 @@ const Dashboard = () => {
             <CardTitle className="text-xl text-navy">Inventory by Type</CardTitle>
           </CardHeader>
           <CardContent className="h-80">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={inventoryByType}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" />
-                <YAxis />
-                <Tooltip 
-                  contentStyle={{ backgroundColor: '#fff', borderColor: '#DDA15E' }}
-                  formatter={(value) => [`${value} sheets`, 'Quantity']}
-                />
-                <Bar dataKey="quantity" fill="#DDA15E" />
-              </BarChart>
-            </ResponsiveContainer>
+            {inventoryByType.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={inventoryByType}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="name" />
+                  <YAxis />
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: '#fff', borderColor: '#DDA15E' }}
+                    formatter={(value) => [`${value} sheets`, 'Quantity']}
+                  />
+                  <Bar dataKey="quantity" fill="#DDA15E" />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex items-center justify-center h-full">
+                <p className="text-slate-500">No inventory data available</p>
+              </div>
+            )}
           </CardContent>
         </Card>
         
@@ -99,20 +140,26 @@ const Dashboard = () => {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {recentTransactions.map(transaction => (
-                <div key={transaction.id} className="flex items-center p-3 bg-slate-50 rounded-md">
-                  <div className={`w-2 h-8 rounded-full mr-3 ${transaction.type === 'addition' ? 'bg-green-500' : 'bg-red-500'}`} />
-                  <div className="flex-1">
-                    <div className="flex justify-between">
-                      <span className="text-sm font-medium">
-                        {transaction.type === 'addition' ? 'Added' : 'Removed'} {transaction.quantity} sheets
-                      </span>
-                      <span className="text-xs text-slate-500">{transaction.date}</span>
+              {recentTransactions.length > 0 ? (
+                recentTransactions.map(transaction => (
+                  <div key={transaction.id} className="flex items-center p-3 bg-slate-50 rounded-md">
+                    <div className={`w-2 h-8 rounded-full mr-3 ${transaction.type === 'addition' ? 'bg-green-500' : 'bg-red-500'}`} />
+                    <div className="flex-1">
+                      <div className="flex justify-between">
+                        <span className="text-sm font-medium">
+                          {transaction.type === 'addition' ? 'Added' : 'Removed'} {transaction.quantity} sheets
+                        </span>
+                        <span className="text-xs text-slate-500">{transaction.date}</span>
+                      </div>
+                      <p className="text-xs text-slate-500">{transaction.reason}</p>
                     </div>
-                    <p className="text-xs text-slate-500">{transaction.reason}</p>
                   </div>
+                ))
+              ) : (
+                <div className="flex items-center justify-center p-8">
+                  <p className="text-slate-500">No transactions available</p>
                 </div>
-              ))}
+              )}
             </div>
           </CardContent>
         </Card>

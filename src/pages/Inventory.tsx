@@ -1,10 +1,10 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Search, X } from "lucide-react";
+import { Plus, Search, X, Loader2 } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { mockPlywoodData, PlywoodSheet, formatDate, getNextId, mockSuppliers } from '@/lib/data-models';
+import { PlywoodSheet, formatDate } from '@/lib/data-models';
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -14,6 +14,9 @@ import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useAuth } from "@/contexts/AuthContext";
+import { fetchPlywoodInventory, addPlywoodSheet } from '@/services/plywoodService';
+import { fetchSuppliers } from '@/services/supplierService';
+import { Supplier } from '@/lib/data-models';
 
 const inventoryFormSchema = z.object({
   type: z.string().min(1, "Type is required"),
@@ -32,9 +35,38 @@ type InventoryFormValues = z.infer<typeof inventoryFormSchema>;
 
 const Inventory = () => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [inventory, setInventory] = useState<PlywoodSheet[]>(mockPlywoodData);
+  const [inventory, setInventory] = useState<PlywoodSheet[]>([]);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const { user } = useAuth();
+  
+  useEffect(() => {
+    const loadInventory = async () => {
+      setIsLoading(true);
+      try {
+        // Load inventory data
+        const data = await fetchPlywoodInventory();
+        setInventory(data);
+        
+        // Load suppliers
+        const suppliersData = await fetchSuppliers();
+        setSuppliers(suppliersData);
+      } catch (error) {
+        console.error('Error loading inventory data:', error);
+        toast({
+          title: "Error",
+          description: "Failed to load inventory data. Please try again.",
+          variant: "destructive",
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    loadInventory();
+  }, []);
   
   const form = useForm<InventoryFormValues>({
     resolver: zodResolver(inventoryFormSchema),
@@ -58,33 +90,46 @@ const Inventory = () => {
     item.supplier.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const handleAddInventory = (values: InventoryFormValues) => {
-    // In a real app, this would connect to SQL backend
-    const newItem: PlywoodSheet = {
-      id: getNextId(inventory),
-      type: values.type,
-      grade: values.grade,
-      thickness: Number(values.thickness),
-      width: Number(values.width),
-      length: Number(values.length),
-      quantity: Number(values.quantity),
-      location: values.location,
-      purchaseDate: formatDate(),
-      purchasePrice: Number(values.purchasePrice),
-      supplier: values.supplier,
-      notes: values.notes,
-      lastUpdated: formatDate(),
-      updatedBy: user?.name || 'Unknown User',
-    };
-
-    setInventory([...inventory, newItem]);
-    setIsDialogOpen(false);
-    form.reset();
+  const handleAddInventory = async (values: InventoryFormValues) => {
+    setIsSubmitting(true);
     
-    toast({
-      title: "Inventory Added",
-      description: `${newItem.type} plywood has been added to inventory.`,
-    });
+    try {
+      // Save to database
+      const newItem: Omit<PlywoodSheet, 'id'> = {
+        type: values.type,
+        grade: values.grade,
+        thickness: Number(values.thickness),
+        width: Number(values.width),
+        length: Number(values.length),
+        quantity: Number(values.quantity),
+        location: values.location,
+        purchaseDate: formatDate(),
+        purchasePrice: Number(values.purchasePrice),
+        supplier: values.supplier,
+        notes: values.notes,
+        lastUpdated: formatDate(),
+        updatedBy: user?.name || 'Unknown User',
+      };
+
+      const addedItem = await addPlywoodSheet(newItem);
+      setInventory([...inventory, addedItem]);
+      setIsDialogOpen(false);
+      form.reset();
+      
+      toast({
+        title: "Inventory Added",
+        description: `${addedItem.type} plywood has been added to inventory.`,
+      });
+    } catch (error: any) {
+      console.error('Error adding inventory:', error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to add inventory item",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -111,52 +156,58 @@ const Inventory = () => {
         </div>
       </header>
       
-      <Card className="shadow-md border-wood/20">
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader className="bg-slate-50">
-                <TableRow>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Grade</TableHead>
-                  <TableHead>Dimensions (mm)</TableHead>
-                  <TableHead className="text-right">Quantity</TableHead>
-                  <TableHead>Location</TableHead>
-                  <TableHead>Supplier</TableHead>
-                  <TableHead className="text-right">Price</TableHead>
-                  <TableHead>Last Updated</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredInventory.length > 0 ? (
-                  filteredInventory.map((item) => (
-                    <TableRow key={item.id}>
-                      <TableCell className="font-medium">{item.type}</TableCell>
-                      <TableCell>{item.grade}</TableCell>
-                      <TableCell>{`${item.thickness} × ${item.width} × ${item.length}`}</TableCell>
-                      <TableCell className="text-right">
-                        <span className={item.quantity < 10 ? "text-red-500 font-medium" : ""}>
-                          {item.quantity}
-                        </span>
-                      </TableCell>
-                      <TableCell>{item.location}</TableCell>
-                      <TableCell>{item.supplier}</TableCell>
-                      <TableCell className="text-right">${item.purchasePrice.toFixed(2)}</TableCell>
-                      <TableCell>{item.lastUpdated}</TableCell>
-                    </TableRow>
-                  ))
-                ) : (
+      {isLoading ? (
+        <div className="flex justify-center items-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin text-navy" />
+        </div>
+      ) : (
+        <Card className="shadow-md border-wood/20">
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader className="bg-slate-50">
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-8 text-slate-500">
-                      No inventory items found matching your search.
-                    </TableCell>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Grade</TableHead>
+                    <TableHead>Dimensions (mm)</TableHead>
+                    <TableHead className="text-right">Quantity</TableHead>
+                    <TableHead>Location</TableHead>
+                    <TableHead>Supplier</TableHead>
+                    <TableHead className="text-right">Price</TableHead>
+                    <TableHead>Last Updated</TableHead>
                   </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
-        </CardContent>
-      </Card>
+                </TableHeader>
+                <TableBody>
+                  {filteredInventory.length > 0 ? (
+                    filteredInventory.map((item) => (
+                      <TableRow key={item.id}>
+                        <TableCell className="font-medium">{item.type}</TableCell>
+                        <TableCell>{item.grade}</TableCell>
+                        <TableCell>{`${item.thickness} × ${item.width} × ${item.length}`}</TableCell>
+                        <TableCell className="text-right">
+                          <span className={item.quantity < 10 ? "text-red-500 font-medium" : ""}>
+                            {item.quantity}
+                          </span>
+                        </TableCell>
+                        <TableCell>{item.location}</TableCell>
+                        <TableCell>{item.supplier}</TableCell>
+                        <TableCell className="text-right">${item.purchasePrice.toFixed(2)}</TableCell>
+                        <TableCell>{item.lastUpdated}</TableCell>
+                      </TableRow>
+                    ))
+                  ) : (
+                    <TableRow>
+                      <TableCell colSpan={8} className="text-center py-8 text-slate-500">
+                        No inventory items found matching your search.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Add Inventory Dialog */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
@@ -305,7 +356,7 @@ const Inventory = () => {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {mockSuppliers.map((supplier) => (
+                          {suppliers.map((supplier) => (
                             <SelectItem key={supplier.id} value={supplier.name}>
                               {supplier.name}
                             </SelectItem>
@@ -338,13 +389,27 @@ const Inventory = () => {
                   variant="outline"
                   onClick={() => setIsDialogOpen(false)}
                   className="mr-2"
+                  disabled={isSubmitting}
                 >
                   <X className="mr-2 h-4 w-4" />
                   Cancel
                 </Button>
-                <Button type="submit" className="bg-wood hover:bg-wood-dark">
-                  <Plus className="mr-2 h-4 w-4" />
-                  Add to Inventory
+                <Button 
+                  type="submit" 
+                  className="bg-wood hover:bg-wood-dark"
+                  disabled={isSubmitting}
+                >
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Adding...
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="mr-2 h-4 w-4" />
+                      Add to Inventory
+                    </>
+                  )}
                 </Button>
               </DialogFooter>
             </form>
